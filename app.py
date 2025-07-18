@@ -3,11 +3,11 @@ import streamlit as st
 import os
 import pandas as pd
 import google.generativeai as genai
-import re # Import regex for better keyword extraction
+import re 
 
 # --- Configuration & Data Loading ---
 try:
-    # Attempt to get API key from environment variable (for Streamlit Cloud/local deployment)
+    
     gemini_api_key = os.environ.get('GEMINI_API_KEY')
     if not gemini_api_key:
         # If running in Kaggle Notebook, try to get from Kaggle Secrets client
@@ -32,7 +32,7 @@ except Exception as e:
     st.stop()
 
 # Load the Q&A dataset
-@st.cache_data # Cache the dataframe loading to avoid re-reading on every rerun
+@st.cache_data 
 def load_qa_data():
     try:
         data_path = 'medquad.csv' # Assuming it's in the same directory as app.py for Streamlit Cloud
