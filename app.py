@@ -262,6 +262,35 @@ def generate_response_with_context(user_prompt, qa_dataframe):
 # --- Streamlit UI ---
 st.set_page_config(page_title="Custom Q&A Chatbot with Gemini 2.5 Flash", layout="centered")
 
+hide_github_icon_css = """
+<style>
+/* This targets the specific Streamlit element that contains the GitHub icon/link */
+/* The class names might change slightly with Streamlit updates, but this is a common one */
+.viewerBadge_container__1QSob {
+    display: none !important;
+}
+
+/* You might also want to hide the "Deploy" button if it appears locally or in certain dev modes */
+.stDeployButton {
+    display: none !important;
+}
+
+/* To hide the "Made with Streamlit" footer (if it appears in your version) */
+footer {
+    visibility: hidden;
+    height: 0%;
+}
+
+/* To hide the main menu (hamburger icon) if desired */
+#MainMenu {
+    visibility: hidden;
+}
+
+</style>
+"""
+st.markdown(hide_github_icon_css, unsafe_allow_html=True)
+
+
 st.title("📚 Custom Q&A Chatbot (Powered by Gemini 2.5 Flash)")
 st.markdown("Ask questions based on the medical knowledge in my dataset! If I don't have specific data, I'll try to use my general knowledge for the topic.")
 
