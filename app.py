@@ -1,24 +1,26 @@
 
+# app.py (This code would be in a separate .py file for Streamlit deployment)
 import streamlit as st
 import os
 import pandas as pd
 import google.generativeai as genai
-import re 
+import re # Import regex for better keyword extraction
 
 # --- Configuration & Data Loading ---
 try:
-    
+    # Attempt to get API key from environment variable (for Streamlit Cloud/local deployment)
     gemini_api_key = os.environ.get('GEMINI_API_KEY')
     if not gemini_api_key:
-        # If running in Kaggle Notebook, try to get from Kaggle Secrets client
-        # This part is specific to Kaggle Notebook environment
+        # This block is for local testing/Kaggle Notebooks where os.environ might not be set
+        # For Streamlit Cloud, the key *must* be set as an environment variable.
+        # Note: 'kaggle_secrets' is not available in Streamlit Cloud.
+        # This part is primarily for local testing within Kaggle Notebook.
         try:
             from kaggle_secrets import UserSecretsClient
             user_secrets = UserSecretsClient()
             gemini_api_key = user_secrets.get_secret("GEMINI_API_KEY")
         except ImportError:
-            # Not in Kaggle environment, and env var not set
-            st.error("GEMINI_API_KEY environment variable not found. Please set it.")
+            st.error("GEMINI_API_KEY environment variable not found. Please set it via Streamlit Secrets or environment variables.")
             st.stop() # Stop the app if API key is missing
 
     if not gemini_api_key:
@@ -35,11 +37,16 @@ except Exception as e:
 @st.cache_data 
 def load_qa_data():
     try:
-        data_path = 'medquad.csv' # Assuming it's in the same directory as app.py for Streamlit Cloud
+        # In Colab, after copying, it's in the current working directory
+        data_path = 'medquad.csv' 
         
+        if not os.path.exists(data_path):
+             st.error(f"Dataset not found at {data_path}. Please ensure it's uploaded to Colab session storage or copied to working directory.")
+             return pd.DataFrame(columns=['Question', 'Answer', 'Focus Area'])
+
         qa_df = pd.read_csv(data_path)
         
-        
+        # --- IMPORTANT: Rename columns to 'Question', 'Answer', and 'Focus Area' for consistency ---
         expected_cols_mapping = {
             'question': 'Question', 
             'answer': 'Answer', 
@@ -73,12 +80,12 @@ def load_gemini_model():
 
 model = load_gemini_model()
 
-# --- Helper function to identify focus area ---
+# --- Helper function to identify focus area (REFINED) ---
 def identify_focus_area_from_question(user_question, qa_dataframe):
     """
     Identifies the most probable focus area from the user's question based on keyword matching.
     Prioritizes direct focus area name matches within the user's question.
-    Returns the identified focus area string or None.
+    Returns the identified focus area string or None if no strong medical match.
     """
     user_question_lower = user_question.lower()
     user_keywords = set(re.findall(r'\b\w+\b', user_question_lower))
@@ -105,7 +112,11 @@ def identify_focus_area_from_question(user_question, qa_dataframe):
             max_focus_score = current_score
             identified_focus_area = focus_area_name
             
-    return identified_focus_area # Returns None if no strong match
+    
+    if max_focus_score < 5: 
+        return None 
+            
+    return identified_focus_area
 
 
 # --- Primary Retrieval function from dataset ---
@@ -121,7 +132,7 @@ def retrieve_context_from_dataset(user_question, qa_dataframe, top_n=3):
     if qa_dataframe.empty or 'Question' not in qa_dataframe.columns or 'Answer' not in qa_dataframe.columns or 'Focus Area' not in qa_dataframe.columns:
         return "Knowledge base is empty or required columns are missing. Cannot retrieve context."
 
-    # Identify the most probable focus area using the helper function
+    
     identified_focus_area = identify_focus_area_from_question(user_question, qa_dataframe)
 
     # Filter the DataFrame based on the identified focus area
@@ -144,11 +155,11 @@ def retrieve_context_from_dataset(user_question, qa_dataframe, top_n=3):
     exact_match_row = filtered_df[filtered_df['Question'].str.lower() == user_question_lower]
     if not exact_match_row.empty:
         found_qa_pairs.append(f"Q: {exact_match_row.iloc[0]['Question']}\nA: {exact_match_row.iloc[0]['Answer']}")
-        # If an exact match is found and we only need one, return it immediately
+        
         if top_n == 1:
             return "\n\n".join(found_qa_pairs)
 
-    # Then, look for keyword matches in questions and answers within the filtered_df
+    
     potential_matches = []
     for index, row in filtered_df.iterrows():
         qa_pair_string = f"Q: {row['Question']}\nA: {row['Answer']}"
@@ -165,10 +176,10 @@ def retrieve_context_from_dataset(user_question, qa_dataframe, top_n=3):
         if keyword_overlap_count > 0: # Only add if there's at least one keyword overlap
             potential_matches.append((keyword_overlap_count, qa_pair_string))
 
-    # Sort potential matches by keyword overlap count (descending)
+    
     potential_matches.sort(key=lambda x: x[0], reverse=True)
     
-    # Add the top potential matches to found_qa_pairs until top_n is reached
+
     for count, qa_pair_string in potential_matches:
         if len(found_qa_pairs) < top_n:
             found_qa_pairs.append(qa_pair_string)
@@ -216,7 +227,7 @@ def generate_response_with_context(user_prompt, qa_dataframe):
         # If no context from dataset, explicitly tell Gemini to use general knowledge
         # and guide it with the identified focus area if possible.
         print("No dataset context found. Falling back to Gemini's general knowledge.")
-        if identified_focus_area:
+        if identified_focus_area: # Only guide with focus area if one was strongly identified
             full_prompt = f"""
             You are a helpful question-answering assistant specializing in medical topics.
             I could not find specific information in my knowledge base.
@@ -226,10 +237,10 @@ def generate_response_with_context(user_prompt, qa_dataframe):
             User's Question: {user_prompt}
             """
         else:
-            # If no focus area identified either, just a general medical question
+            
             full_prompt = f"""
-            You are a helpful question-answering assistant specializing in medical topics.
-            I could not find specific information in my knowledge base.
+            You are a helpful question-answering assistant.
+            I could not find specific information in my medical knowledge base.
             Please answer the following question based on your general knowledge.
             If you truly don't know, state that you cannot answer.
 
@@ -248,7 +259,7 @@ def generate_response_with_context(user_prompt, qa_dataframe):
     
     return final_response
 
-    # --- Streamlit UI ---
+# --- Streamlit UI ---
 st.set_page_config(page_title="Custom Q&A Chatbot with Gemini 2.5 Flash", layout="centered")
 
 st.title("📚 Custom Q&A Chatbot (Powered by Gemini 2.5 Flash)")
@@ -275,4 +286,3 @@ if prompt := st.chat_input("Ask your question here..."):
             full_response = generate_response_with_context(prompt, qa_df)
         st.markdown(full_response)
     st.session_state.messages.append({"role": "assistant", "content": full_response})
-
